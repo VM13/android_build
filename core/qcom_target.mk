@@ -7,6 +7,12 @@ endef
 define ril-set-path-variant
 $(call project-set-path-variant,ril,TARGET_RIL_VARIANT,hardware/$(1))
 endef
+define wlan-set-path-variant
+$(call project-set-path-variant,wlan,TARGET_WLAN_VARIANT,hardware/qcom/$(1))
+endef
+define bt-vendor-set-path-variant
+$(call project-set-path-variant,bt-vendor,TARGET_BT_VENDOR_VARIANT,hardware/qcom/$(1))
+endef
 define gps-hal-set-path-variant
 $(call project-set-path-variant,gps-hal,TARGET_GPS_HAL_PATH,$(1))
 endef
@@ -26,11 +32,7 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     # Tell HALs that we're compiling an AOSP build with an in-line kernel
     TARGET_COMPILE_WITH_MSM_KERNEL := true
 
-    # Enable DirectTrack for legacy targets
     ifneq ($(filter msm7x30 msm8660 msm8960,$(TARGET_BOARD_PLATFORM)),)
-        ifeq ($(BOARD_USES_LEGACY_ALSA_AUDIO),true)
-            qcom_flags += -DQCOM_DIRECTTRACK
-        endif
         # Enable legacy graphics functions
         qcom_flags += -DQCOM_BSP_LEGACY
     endif
@@ -73,6 +75,8 @@ $(call qcom-set-path-variant,GPS,gps)
 $(call project-set-path,qcom-media,hardware/qcom/media-caf/$(QCOM_HARDWARE_VARIANT))
 $(call qcom-set-path-variant,SENSORS,sensors)
 $(call ril-set-path-variant,ril)
+$(call wlan-set-path-variant,wlan-caf)
+$(call bt-vendor-set-path-variant,bt-caf)
 $(call loc-api-set-path-variant,vendor/qcom/opensource/location)
 $(call gps-hal-set-path-variant,hardware/qcom/gps)
 else
@@ -83,6 +87,8 @@ $(call qcom-set-path-variant,GPS,gps)
 $(call project-set-path,qcom-media,hardware/qcom/media/default)
 $(call qcom-set-path-variant,SENSORS,sensors)
 $(call ril-set-path-variant,ril)
+$(call wlan-set-path-variant,wlan)
+$(call bt-vendor-set-path-variant,bt)
 $(call loc-api-set-path-variant,vendor/qcom/opensource/location)
 $(call gps-hal-set-path-variant,hardware/qcom/gps)
 endif
