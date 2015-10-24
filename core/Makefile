@@ -1849,23 +1849,6 @@ bacon: otapackage
 	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(CM_TARGET_PACKAGE)
 	$(hide) $(MD5SUM) $(CM_TARGET_PACKAGE) > $(CM_TARGET_PACKAGE).md5sum
 	@echo -e ${CL_CYN}"Package Complete: $(CM_TARGET_PACKAGE)"${CL_RST}
-	@echo -e ${CL_CYN} ""${CL_RST}
-	@echo -e ${CL_CYN}" _____                  _   _      _   ___     _ "${CL_RST} 
-	@echo -e ${CL_CYN}"/  __ \                | | (_)    | | / (_)   | |"${CL_RST} 
-	@echo -e ${CL_CYN}"| /  \/_ __ _   _ _ __ | |_ _  ___| |/ / _  __| |"${CL_RST}
-	@echo -e ${CL_CYN}"| |   | '__| | | | '_ \| __| |/ __|    \| |/ _  |"${CL_RST}	
-	@echo -e ${CL_CYN}"| \__/\ |  | |_| | |_) | |_| | (__| |\  \ | (_| |"${CL_RST} 
-	@echo -e ${CL_CYN}"\____/_|   \__, | .__/ \__|_|\___\_| \_/_|\__,_|"${CL_RST} 
-	@echo -e ${CL_CYN}"             __/ | |"${CL_RST}                              
-	@echo -e ${CL_CYN}"            |___/|_|"${CL_RST}                              
-	@echo -e ${CL_CYN}"                             __   _____ "${CL_RST}          
-	@echo -e ${CL_CYN}"                            /  | |____ |"${CL_RST}          
-	@echo -e ${CL_CYN}"          __   ___ __ ___   \  |     / /"${CL_RST}        
-	@echo -e ${CL_CYN}"          \ \ / / | | | | |  | |     \ |"${CL_RST}         
-	@echo -e ${CL_CYN}"           \ V /| | | | | | _| |_.___/ /"${CL_RST}          
-	@echo -e ${CL_CYN}"            \_/ |_| |_| |_| \___/\____/"${CL_RST} 
-	@echo -e ${CL_CYN} ""${CL_RST}
-	@echo -e ${CL_CYN} ""${CL_RST}
 
 # -----------------------------------------------------------------
 # The factory package
