@@ -29,6 +29,7 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - mka:      Builds using SCHED_BATCH on all processors
 - mkap:     Builds the module(s) using mka and pushes them to the device.
 - cmka:     Cleans and builds using mka.
+- repolastsync: Prints date and time of last repo sync.
 - reposync: Parallel repo sync using ionice and SCHED_BATCH
 - repopick: Utility to fetch changes from Gerrit.
 - installboot: Installs a boot.img to the connected device.
@@ -42,12 +43,9 @@ Environemnt options:
 Look at the source to view more functions. The complete list is:
 EOF
     T=$(gettop)
-    local A
-    A=""
     for i in `cat $T/build/envsetup.sh | sed -n "/^[ \t]*function /s/function \([a-z_]*\).*/\1/p" | sort | uniq`; do
-      A="$A $i"
-    done
-    echo $A
+      echo "$i"
+    done | column
 }
 
 # Get the value of a build variable as an absolute path.
@@ -153,6 +151,7 @@ function setpaths()
     # defined in core/config.mk
     targetgccversion=$(get_build_var TARGET_GCC_VERSION)
     targetgccversion2=$(get_build_var 2ND_TARGET_GCC_VERSION)
+    targetlegacygccversion=$(get_build_var TARGET_LEGACY_GCC_VERSION)
     export TARGET_GCC_VERSION=$targetgccversion
 
     # The gcc toolchain does not exists for windows/cygwin. In this case, do not reference it.
@@ -188,7 +187,7 @@ function setpaths()
     case $ARCH in
         arm)
             # Legacy toolchain configuration used for ARM kernel compilation
-            toolchaindir=arm/arm-eabi-$targetgccversion/bin
+            toolchaindir=arm/arm-eabi-$targetlegacygccversion/bin
             if [ -d "$gccprebuiltdir/$toolchaindir" ]; then
                  export ARM_EABI_TOOLCHAIN="$gccprebuiltdir/$toolchaindir"
                  ANDROID_KERNEL_TOOLCHAIN_PATH="$ARM_EABI_TOOLCHAIN":
@@ -236,6 +235,10 @@ function setpaths()
 
     unset ANDROID_HOST_OUT
     export ANDROID_HOST_OUT=$(get_abs_build_var HOST_OUT)
+
+    if [ -n "$ANDROID_CCACHE_DIR" ]; then
+        export CCACHE_DIR=$ANDROID_CCACHE_DIR
+    fi
 
     # needed for building linux on MacOS
     # TODO: fix the path
@@ -577,6 +580,7 @@ alias bib=breakfast
 function lunch()
 {
     local answer
+    LUNCH_MENU_CHOICES=($(for l in ${LUNCH_MENU_CHOICES[@]}; do echo "$l"; done | sort))
 
     if [ "$1" ] ; then
         answer=$1
@@ -743,7 +747,7 @@ function eat()
             done
             echo "Device Found.."
         fi
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
     then
         # if adbd isn't root we can't write to /cache/recovery/
         adb root
@@ -918,7 +922,12 @@ function mmm()
                 case $DIR in
                   showcommands | snod | dist | incrementaljavac | *=*) ARGS="$ARGS $DIR";;
                   GET-INSTALL-PATH) GET_INSTALL_PATH=$DIR;;
-                  *) echo "No Android.mk in $DIR."; return 1;;
+                  *) if [ -d $DIR ]; then
+                         echo "No Android.mk in $DIR.";
+                     else
+                         echo "Couldn't locate the directory $DIR";
+                     fi
+                     return 1;;
                 esac
             fi
         done
@@ -1735,7 +1744,7 @@ function installboot()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 > /dev/null
     adb wait-for-online remount
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
     then
         adb push $OUT/boot.img /cache/
         for i in $OUT/system/lib/modules/*;
@@ -1780,7 +1789,7 @@ function installrecovery()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 >> /dev/null
     adb wait-for-online remount
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
     then
         adb push $OUT/recovery.img /cache/
         adb shell dd if=/cache/recovery.img of=$PARTITION
@@ -2087,14 +2096,20 @@ function cmrebase() {
 }
 
 function mka() {
-    case `uname -s` in
-        Darwin)
-            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
-            ;;
-        *)
-            schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
-            ;;
-    esac
+    local T=$(gettop)
+    if [ "$T" ]; then
+        case `uname -s` in
+            Darwin)
+                make -C $T -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
+                ;;
+            *)
+                mk_timer schedtool -B -n 1 -e ionice -n 1 make -C $T -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
+                ;;
+        esac
+
+    else
+        echo "Couldn't locate the top of the tree.  Try setting TOP."
+    fi
 }
 
 function cmka() {
@@ -2115,6 +2130,13 @@ function cmka() {
         mka clean
         mka
     fi
+}
+
+function repolastsync() {
+    RLSPATH="$ANDROID_BUILD_TOP/.repo/.repo_fetchtimes.json"
+    RLSLOCAL=$(date -d "$(stat -c %z $RLSPATH)" +"%e %b %Y, %T %Z")
+    RLSUTC=$(date -d "$(stat -c %z $RLSPATH)" -u +"%e %b %Y, %T %Z")
+    echo "Last repo sync: $RLSLOCAL / $RLSUTC"
 }
 
 function reposync() {
@@ -2153,7 +2175,7 @@ function dopush()
         echo "Device Found."
     fi
 
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD") || [ "$FORCE_PUSH" == "true" ];
     then
     # retrieve IP and PORT info if we're using a TCP connection
     TCPIPPORT=$(adb devices | egrep '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+[^0-9]+' \
@@ -2183,11 +2205,29 @@ function dopush()
     # Copy: <file>
     LOC="$LOC $(cat $OUT/.log | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g' | grep '^Copy: ' | cut -d ':' -f 2)"
 
+    # If any files are going to /data, push an octal file permissions reader to device
+    if [ -n "$(echo $LOC | egrep '(^|\s)/data')" ]; then
+        CHKPERM="/data/local/tmp/chkfileperm.sh"
+(
+cat <<'EOF'
+#!/system/xbin/sh
+FILE=$@
+if [ -e $FILE ]; then
+    ls -l $FILE | awk '{k=0;for(i=0;i<=8;i++)k+=((substr($1,i+2,1)~/[rwx]/)*2^(8-i));if(k)printf("%0o ",k);print}' | cut -d ' ' -f1
+fi
+EOF
+) > $OUT/.chkfileperm.sh
+        echo "Pushing file permissions checker to device"
+        adb push $OUT/.chkfileperm.sh $CHKPERM
+        adb shell chmod 755 $CHKPERM
+        rm -f $OUT/.chkfileperm.sh
+    fi
+
     stop_n_start=false
     for FILE in $LOC; do
-        # Make sure file is in $OUT/system
+        # Make sure file is in $OUT/system or $OUT/data
         case $FILE in
-            $OUT/system/*)
+            $OUT/system/*|$OUT/data/*)
                 # Get target file name (i.e. /system/bin/adb)
                 TARGET=$(echo $FILE | sed "s#$OUT##")
             ;;
@@ -2195,6 +2235,25 @@ function dopush()
         esac
 
         case $TARGET in
+            /data/*)
+                # fs_config only sets permissions and se labels for files pushed to /system
+                if [ -n "$CHKPERM" ]; then
+                    OLDPERM=$(adb shell $CHKPERM $TARGET)
+                    OLDPERM=$(echo $OLDPERM | tr -d '\r' | tr -d '\n')
+                    OLDOWN=$(adb shell ls -al $TARGET | awk '{print $2}')
+                    OLDGRP=$(adb shell ls -al $TARGET | awk '{print $3}')
+                fi
+                echo "Pushing: $TARGET"
+                adb push $FILE $TARGET
+                if [ -n "$OLDPERM" ]; then
+                    echo "Setting file permissions: $OLDPERM, $OLDOWN":"$OLDGRP"
+                    adb shell chown "$OLDOWN":"$OLDGRP" $TARGET
+                    adb shell chmod "$OLDPERM" $TARGET
+                else
+                    echo "$TARGET did not exist previously, you should set file permissions manually"
+                fi
+                adb shell restorecon "$TARGET"
+            ;;
             /system/priv-app/SystemUI/SystemUI.apk|/system/framework/*)
                 # Only need to stop services once
                 if ! $stop_n_start; then
@@ -2210,6 +2269,9 @@ function dopush()
             ;;
         esac
     done
+    if [ -n "$CHKPERM" ]; then
+        adb shell rm $CHKPERM
+    fi
     if $stop_n_start; then
         adb shell start
     fi
@@ -2248,7 +2310,7 @@ function fixup_common_out_dir() {
     fi
 }
 
-# Force JAVA_HOME to point to java 1.7 or java 1.6  if it isn't already set.
+# Force JAVA_HOME to point to java 1.7 if it isn't already set.
 #
 # Note that the MacOS path for java 1.7 includes a minor revision number (sigh).
 # For some reason, installing the JDK doesn't make it show up in the
@@ -2286,9 +2348,9 @@ function pez {
     local retval=$?
     if [ $retval -ne 0 ]
     then
-        echo -e "\e[0;31mFAILURE\e[00m"
+        printf "\e[0;31mFAILURE\e[00m\n"
     else
-        echo -e "\e[0;32mSUCCESS\e[00m"
+        printf "\e[0;32mSUCCESS\e[00m\n"
     fi
     return $retval
 }
@@ -2298,10 +2360,10 @@ function get_make_command()
   echo command make
 }
 
-function make()
+function mk_timer()
 {
     local start_time=$(date +"%s")
-    $(get_make_command) "$@"
+    $@
     local ret=$?
     local end_time=$(date +"%s")
     local tdiff=$(($end_time-$start_time))
@@ -2312,7 +2374,7 @@ function make()
     if [ -n "$ncolors" ] && [ $ncolors -ge 8 ]; then
         color_failed="\e[0;31m"
         color_success="\e[0;32m"
-        color_reset="\e[00m"
+        color_reset="\e[0m"
     else
         color_failed=""
         color_success=""
@@ -2320,9 +2382,9 @@ function make()
     fi
     echo
     if [ $ret -eq 0 ] ; then
-        echo -n -e "${color_success}#### make completed successfully "
+        printf "${color_success}#### make completed successfully "
     else
-        echo -n -e "${color_failed}#### make failed to build some targets "
+        printf "${color_failed}#### make failed to build some targets "
     fi
     if [ $hours -gt 0 ] ; then
         printf "(%02g:%02g:%02g (hh:mm:ss))" $hours $mins $secs
@@ -2331,9 +2393,13 @@ function make()
     elif [ $secs -gt 0 ] ; then
         printf "(%s seconds)" $secs
     fi
-    echo -e " ####${color_reset}"
-    echo
+    printf " ####${color_reset}\n\n"
     return $ret
+}
+
+function make()
+{
+    mk_timer $(get_make_command) "$@"
 }
 
 if [ "x$SHELL" != "x/bin/bash" ]; then
